@@ -1,0 +1,151 @@
+# Example:
+#   C_UNAL<- findim_hcpc(data, verbose=TRUE)       # USE the function findim_hcpc
+#   head(C_UNAL[[1]])                              # See the head of the cluster 1
+#   unlist(lapply(C_UNAL, ncol))                   # Review the number of items per cluster
+#       data_c_unal<- do.call(cbind, C_UNAL)       # Create a data set with the new partition (matrix)
+#       lapply(C_UNAL,colnames)                    # To see the list of items inside the new partition
+
+#
+
+
+#**********************************************************************************
+#     DIM_FOUND_HCPC function
+#**********************************************************************************
+
+
+# INPUTS
+#
+
+findim_hcpc<- function(dat, verbose=FALSE)
+{
+  
+  
+  if(is.null(colnames(dat)))
+  {	
+    colnames(dat)<- paste("V",1:ncol(dat), sep="")
+  }
+  
+  
+  ##############################################
+  #	Using Paralell Analysis to 
+  # 	found a initial dimension
+  ##############################################
+  
+  if(verbose) {print("Using Paralel Analysis")}
+  
+  paran<- paran::paran(dat, iterations=500, centile=95, graph=T)
+  
+  #*****	Adjusted eigen values		****#
+  #*****	Greater than 1 are selected	****#
+  
+  
+  dim<- paran$Retained
+  acp<-   ade4::dudi.pca(dat, nf=dim, scannf = FALSE)
+  Axis<- -acp$li
+  Prod<- t(Axis)%*%as.matrix(dat)
+  
+  
+  
+  
+  
+  ##############################################
+  #	Selecting items to be fixed
+  # 	items with the max projection 
+  #	over each principal direction
+  #	of the PCA are fixed
+  ##############################################
+  
+  
+  index_prod<- vector()
+  for(i in 1:dim)
+  {
+    j=1
+    end=FALSE
+    index_prod[i]<- which(Prod[i,] == 	apply(Prod,1, sort, decreasing=T)[,i][j])
+    if(i > 1)
+    {
+      while(end==FALSE) {
+        l= length(unique(index_prod))
+        if(l < i)
+        {
+          j=j+1
+          index_prod[i]<- which(Prod[i,] == 	apply(Prod,1, sort, decreasing=T)[,i][j])
+        }
+        
+        if(l == i)
+        {
+          end=TRUE
+        }
+      }
+    }
+  }
+  
+  
+  
+  ##############################################
+  #	Preparing to use noharm
+  ##############################################
+  
+  
+  
+  PPatt<- matrix(0, ncol=dim, nrow=dim)
+  FPatt<-  matrix(1, ncol=dim, nrow=ncol(dat))
+  FPatt[index_prod,]<- matrix(0, ncol=dim, nrow=dim)
+  
+  
+  PVal<- diag(dim)
+  FVal<-  matrix(1, ncol=dim, nrow=ncol(dat))
+  FVal[index_prod,]<- diag(dim)
+  
+  
+  if(verbose){ print("++++  Computing items' directions  ++++")}
+  fit <- sirt::noharm.sirt(dat= dat, Ppatt= PPatt, Fpatt= FPatt, Pval=PVal, Fval= FVal)
+  
+  
+  
+  #*****	Normalizing item slopes		****#
+  #*****	to generate directions		****#
+  
+  
+  A<- fit$loadings.theta
+  norm<- sqrt(apply(A^2, 1, sum))
+  A_norm<- A/matrix(norm, ncol=dim, nrow=nrow(A))
+  
+  
+  ##############################################
+  #	Using HCPC from FactoMineR
+  #	to generate groups of items
+  ##############################################
+  
+  
+  if(verbose){ print("++++  Making new clusters which generate new dimension  ++++")}
+  
+  acp_dir<- FactoMineR::PCA(A_norm, graph=FALSE)
+  hcpc_dir<- FactoMineR::HCPC(acp_dir)
+  clust<- hcpc_dir$data.clust[, (dim+1)]
+  
+  #*****	Number of clusters is 		****#
+  #*****	The new dimension 		****#
+  
+  
+  dim.new<- length(unique(clust))  
+  
+  
+  #*****	Saving new clusters		****#
+  
+  
+  CLUST<- list()
+  for(i in 1:dim.new)
+  {
+    CLUST[[i]]<- dat[,which(clust==i)]
+    colnames(CLUST[[i]])<- colnames(dat)[which(clust==i)]
+  }
+  
+  if(verbose){ print("++++  Done 'Dim_found_hcpc' ++++")}
+  
+  return(CLUST)
+}
+
+#**********************************************************************************
+#    END !!! DIM_FOUND_HCPC function
+#**********************************************************************************
